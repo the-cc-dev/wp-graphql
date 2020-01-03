@@ -30,6 +30,7 @@ function graphql_format_field_name( $field_name ) {
  * @access public
  * @return array
  * @since  0.2.0
+ * @throws Exception
  */
 function graphql( $request_data = [] ) {
 	$request = new \WPGraphQL\Request( $request_data );
@@ -47,6 +48,7 @@ function graphql( $request_data = [] ) {
  * @access public
  * @return array
  * @since  0.0.2
+ * @throws \Exception
  */
 function do_graphql_request( $query, $operation_name = '', $variables = [] ) {
 	return graphql( [
@@ -57,13 +59,42 @@ function do_graphql_request( $query, $operation_name = '', $variables = [] ) {
 }
 
 /**
+ * Determine when to register types
+ * @return string
+ */
+function get_graphql_register_action() {
+	$action = 'graphql_register_types_late';
+	if ( ! did_action( 'graphql_register_initial_types' ) ) {
+		$action = 'graphql_register_initial_types';
+	} else if ( ! did_action( 'graphql_register_types' ) ) {
+		$action = 'graphql_register_types';
+	}
+	return $action;
+}
+
+/**
  * Given a Type Name and a $config array, this adds a Type to the TypeRegistry
  *
  * @param string $type_name The name of the Type to register
  * @param array  $config    The Type config
  */
 function register_graphql_type( $type_name, $config ) {
-	\WPGraphQL\TypeRegistry::register_type( $type_name, $config );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $config ) {
+		$type_registry->register_type( $type_name, $config );
+	}, 10 );
+
+}
+
+/**
+ * Given a Type Name and a $config array, this adds an Interface Type to the TypeRegistry
+ *
+ * @param string $type_name The name of the Type to register
+ * @param array  $config    The Type config
+ */
+function register_graphql_interface_type( $type_name, $config ) {
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $config ) {
+		$type_registry->register_interface_type( $type_name, $config );
+	}, 10 );
 }
 
 /**
@@ -95,8 +126,11 @@ function register_graphql_input_type( $type_name, $config ) {
  * @param array  $config    The Type config
  */
 function register_graphql_union_type( $type_name, $config ) {
-	$config['kind'] = 'union';
-	register_graphql_type( $type_name, $config );
+
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $config ) {
+		$config['kind'] = 'union';
+		$type_registry->register_type( $type_name, $config  );
+	}, 10 );
 }
 
 /**
@@ -119,7 +153,9 @@ function register_graphql_enum_type( $type_name, $config ) {
  * @param array  $config     The Type config
  */
 function register_graphql_field( $type_name, $field_name, $config ) {
-	\WPGraphQL\TypeRegistry::register_field( $type_name, $field_name, $config );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $field_name, $config ) {
+		$type_registry->register_field( $type_name, $field_name, $config  );
+	}, 10 );
 }
 
 /**
@@ -130,17 +166,9 @@ function register_graphql_field( $type_name, $field_name, $config ) {
  * @param array  $fields    An array of field configs
  */
 function register_graphql_fields( $type_name, array $fields ) {
-	\WPGraphQL\TypeRegistry::register_fields( $type_name, $fields );
-}
-
-/**
- * Given a Schema Name and a Schema Config, this adds the Schema to the SchemaRegistry
- *
- * @param string $schema_name The name of the Schema to register
- * @param array  $config      The config for the Schema
- */
-function register_graphql_schema( $schema_name, array $config ) {
-	\WPGraphQL\SchemaRegistry::register_schema( $schema_name, $config );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $fields ) {
+		$type_registry->register_fields( $type_name, $fields  );
+	}, 10 );
 }
 
 /**
@@ -150,7 +178,9 @@ function register_graphql_schema( $schema_name, array $config ) {
  * @param array $config Array to configure the connection
  */
 function register_graphql_connection( array $config ) {
-	\WPGraphQL\TypeRegistry::register_connection( $config );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $config ) {
+		$type_registry->register_connection( $config );
+	}, 10 );
 }
 
 /**
@@ -160,7 +190,9 @@ function register_graphql_connection( array $config ) {
  * @param string $field_name The name of the field to remove
  */
 function deregister_graphql_field( $type_name, $field_name ) {
-	\WPGraphQL\TypeRegistry::deregister_field( $type_name, $field_name );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $type_name, $field_name ) {
+		$type_registry->deregister_field( $type_name, $field_name );
+	}, 10 );
 }
 
 /**
@@ -170,5 +202,40 @@ function deregister_graphql_field( $type_name, $field_name ) {
  * @param array  $config        The config for the mutation
  */
 function register_graphql_mutation( $mutation_name, $config ) {
-	\WPGraphQL\TypeRegistry::register_mutation( $mutation_name, $config );
+	add_action( get_graphql_register_action(), function( \WPGraphQL\Registry\TypeRegistry $type_registry ) use ( $mutation_name, $config ) {
+		$type_registry->register_mutation( $mutation_name, $config );
+	}, 10 );
+}
+
+/**
+ * Whether a GraphQL request is in action or not. This is determined by the WPGraphQL Request
+ * class being initiated. True while a request is in action, false after a request completes.
+ *
+ * This should be used when a condition needs to be checked for ALL GraphQL requests, such
+ * as filtering WP_Query for GraphQL requests, for example.
+ *
+ * Default false.
+ *
+ * @since 0.4.1
+ * @return bool
+ */
+function is_graphql_request() {
+	return WPGraphQL::is_graphql_request();
+}
+/**
+ * Whether a GraphQL HTTP request is in action or not. This is determined by
+ * checking if the request is occurring on the route defined for the GraphQL endpoint.
+ *
+ * This conditional should only be used for features that apply to HTTP requests. If you are going
+ * to apply filters to underlying WordPress core functionality that should affect _all_ GraphQL
+ * requests, you should use "is_graphql_request" but if you need to apply filters only if the
+ * GraphQL request is an HTTP request, use this conditional.
+ *
+ * Default false.
+ *
+ * @since 0.4.1
+ * @return bool
+ */
+function is_graphql_http_request() {
+	return \WPGraphQL\Router::is_graphql_http_request();
 }

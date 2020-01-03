@@ -3,6 +3,8 @@ sudo: required
 services:
   - docker
 
+language: php
+
 notifications:
   email:
     on_success: never
@@ -16,31 +18,60 @@ branches:
 cache:
   apt: true
 
-
-# Set the global environment variables
-env:
-  matrix:
-    # These apply to the latest WP version that is available as a Docker image: https://hub.docker.com/_/wordpress/
-    - PHP_VERSION=5.6
-    - PHP_VERSION=7.1
-    - PHP_VERSION=7.2 COVERAGE=true LINT_SCHEMA=true
+## Set the global environment variables
+matrix:
+  include:
+    - php: 7.2
+      env: WP_VERSION=5.3.0 PHP_VERSION=7.1
+    - php: 7.2
+      env: WP_VERSION=5.3.2 PHP_VERSION=7.2
+    - php: 7.3
+      env: WP_VERSION=5.3.2 PHP_VERSION=7.3
+    - php: 7.4
+      env: WP_VERSION=5.3.2 PHP_VERSION=7.4 COVERAGE=true LINT_SCHEMA=true
+    - php: 7.4
+      env: WP_VERSION=5.3.2 PHP_VERSION=7.4 PHPCS=true
+  allow_failures:
+    - env: WP_VERSION=5.3.2 PHP_VERSION=7.4 PHPCS=true
 
 before_install:
-- sudo rm /usr/local/bin/docker-compose
-- curl -L https://github.com/docker/compose/releases/download/1.23.2/docker-compose-`uname -s`-`uname -m` > docker-compose
-- chmod +x docker-compose
-- sudo mv docker-compose /usr/local/bin
+  - sudo rm /usr/local/bin/docker-compose
+  - curl -L https://github.com/docker/compose/releases/download/1.24.1/docker-compose-`uname -s`-`uname -m` > docker-compose
+  - chmod +x docker-compose
+  - sudo mv docker-compose /usr/local/bin
+  - |
+    # Remove Xdebug for a huge performance increase:
+    if [ -f ~/.phpenv/versions/$(phpenv version-name)/etc/conf.d/xdebug.ini ]; then
+      phpenv config-rm xdebug.ini
+    else
+      echo "xdebug.ini does not exist"
+    fi
+
+before_script:
+  # Install PHP CodeSniffer and WPCS.
+  - |
+    if [[ "$PHPCS" == "true" ]]; then
+      composer install
+
+      phpenv rehash
+    fi
 
 script:
   - ./run-docker-tests.sh 'wpunit'
   - ./run-docker-tests.sh 'functional'
   - ./run-docker-tests.sh 'acceptance'
+  - if [[ "$PHPCS" == "true" ]]; then composer check-cs; fi
 
 after_success:
   # Upload coverage to codecov
   - |
     if [[ "${COVERAGE}" == 'true' ]]; then
       bash <(curl -s https://codecov.io/bash)
+
+      composer self-update # This should not be required, but it is always a good practice to update composer
+      composer install
+      composer require php-coveralls/php-coveralls
+      travis_retry php vendor/bin/php-coveralls
     fi
   # Install GraphQL Schema Linter
   # Move to the WordPress Install

@@ -8,15 +8,18 @@ GraphQL API for WordPress.
 
 [![Build Status](https://travis-ci.org/wp-graphql/wp-graphql.svg?branch=master)](https://travis-ci.org/wp-graphql/wp-graphql)
 [![codecov](https://codecov.io/gh/wp-graphql/wp-graphql/branch/master/graph/badge.svg)](https://codecov.io/gh/wp-graphql/wp-graphql)
+[![Backers on Open Collective](https://opencollective.com/wp-graphql/backers/badge.svg)](#backers) 
+[![Sponsors on Open Collective](https://opencollective.com/wp-graphql/sponsors/badge.svg)](#sponsors) 
+
 ------
 
 ## Quick Install
 Download and install like any WordPress plugin.
-[Details on Install and Activation](https://wpgraphql.com/docs/getting-started/install-and-activate/)
+[Details on Install and Activation](https://docs.wpgraphql.com/getting-started/install-and-activate)
 
 ## Documentation
 
-Documentation can be found [here](https://docs.wpgraphql.com). The repository where the Documentation content lives is [here](https://github.com/wp-graphql/wpgraphql.com)
+Documentation can be found [here](https://docs.wpgraphql.com). The repository where the Documentation content lives is [here](https://github.com/wp-graphql/docs.wpgraphql.com)
 
 - Requires PHP 5.5+
 - Requires WordPress 4.7+
@@ -95,8 +98,12 @@ For example:
 
 `bin/install-wp-tests.sh wpgraphql_test root password 127.0.0.1 latest`
 
-*DEBUGGING*: If you have run this command before in another branch you may already have a local copy of WordPress downloaded in your `/private/tmp` directory. 
-If this is the case, please remove it and then run the install script again. Without removing this you may receive an error when running phpunit.
+*DEBUGGING*: 
+
+- If you have run this command before in another branch you may already have a local copy of WordPress downloaded in your `/private/tmp` directory. If this is the case, please remove it and then run the install script again. Without removing this you may receive an error when running phpunit.
+
+- This is installed into your machine's `tmp` directory, so if you restart your computer, you will need to re-run this script to install. 
+
 
 #### Local Environment Configuration for Codeception Tests
 
@@ -155,7 +162,7 @@ of the set up and configuration tasks performed by a developer.
    ```
 1. Visit http://127.0.0.1:8000.
 
-#### Using PHPStorm/IntelliJ+XDebug (Linux)
+#### Using PHPStorm/IntelliJ+XDebug (OS X and Linux)
 
 1. Make sure PHPStorm/IntelliJ is listenting on port 9000 for incoming XDebug connections from the WP container (for more info on remote XDebug debugging, visit https://xdebug.org/docs/remote):
    ![alt text](img/intellij-php-debug-config.png)
@@ -175,6 +182,32 @@ of the set up and configuration tasks performed by a developer.
    ![alt text](img/intellij-php-start-debug.png)
    
 1. Now when you visit http://127.0.0.1:8000 you can use the debugger.           
+
+
+#### Using MySQL clients to connect to MySQL containers
+1. Run the application with desired sites. Here's an example:
+   ```
+   ./run-docker-local-app.sh
+   ```
+
+1. List the MySQL containers that are running and their MySQL port mappings. These ports will change each time the app is run:  
+   ```
+   ./list-mysql-containers.sh
+   ```
+   
+   You should see output like the following:
+   ```
+   aa38d8d7eff1        mariadb:10.2.24-bionic          "docker-entrypoint.s…"   14 seconds ago      Up 13 seconds       0.0.0.0:32772->3306/tcp   docker_mysql_test_1
+   ```
+   
+1. Configure your MySQL client to connect to `localhost` and the appropriate ***host*** port. For example, to connect
+   to the MySQL container shown above, have the MySQL client connect with this configuration:
+   * IP/Hostname: `localhost`
+   * Port: `32772`
+   * Database: `wpgraphql_test`
+   * User: `root`
+   * Password: `testing`
+
    
 #### Running tests with Docker
 
@@ -242,10 +275,21 @@ Notes:
 * Code coverage for `functional` and `acceptance` tests is only supported for PHP 7.X. 
   
 
-#### Updating WP Docker image
-Make sure the `docker-compose*.yml` files refer to the most recent and specific version of the official WordPress Docker and MySQL compatible images.
+#### Updating WP Docker software versions
+Make sure the `docker/docker-compose*.yml` files refer to the most recent and specific version of the official WordPress Docker and MySQL compatible images.
 Please avoid using the `latest` Docker tag. Once Docker caches a Docker image for a given tag onto your machine, it won't automatically
 check for updates. Using an actual version number ensures Docker image caches are updated at the right time.
+
+List of software versions to check:
+* Travis config `.travis.yml`
+* Test base Dockerfile (`Dockerfile.test-base`)
+   * XDebug
+   * Official WordPress/PHP Docker image
+   * PHP Composer
+
+* XDebug Dockerfile (`Dockerfile.xdebug`)
+   * XDebug
+
   
 ### Generating Code Coverage
 You can generate code coverage for tests by passing `--coverage`, `--coverage-xml` or `--coverage-html` with the tests. 
@@ -269,6 +313,16 @@ And you can output the coverage locally to HTML like so:
 
 `vendor/bin/codecept run wpunit AvatarObjectQueriesTest --coverage --coverage-html`
 
+## Linting
+As a helpful development tool, you can enable automatic linting before commiting.
+1. Run `npm install`. 
+2. Before development, run `composer install`
+3. After you're done run `composer install --no-dev` to remove development dependencies
+
+(Steps 2 and 3 will be removed once we have an automated build process. See https://github.com/wp-graphql/wp-graphql/issues/224) 
+
+Your changed files will now be linted via phpcs and your commit will fail with a list of errors if there are any.
+
 ## Shout Outs
 This plugin brings the power of GraphQL (http://graphql.org/) to WordPress.
 
@@ -291,3 +345,33 @@ implementation (https://github.com/graphql/graphql-js)
 
 Much love to Apollo (Meteor Development Group) for their work on driving GraphQL forward and providing a lot of insight 
 into how to design GraphQL schemas, etc. Check them out: http://www.apollodata.com/
+
+## Contributors
+
+This project exists thanks to all the people who contribute. [[Contribute](CONTRIBUTING.md)].
+<a href="https://github.com/wp-graphql/wp-graphql/graphs/contributors"><img src="https://opencollective.com/wp-graphql/contributors.svg?width=890&button=false" /></a>
+
+
+## Backers
+
+Thank you to all our backers! 🙏 [[Become a backer](https://opencollective.com/wp-graphql#backer)]
+
+<a href="https://opencollective.com/wp-graphql#backers" target="_blank"><img src="https://opencollective.com/wp-graphql/backers.svg?width=890"></a>
+
+
+## Sponsors
+
+Support this project by becoming a sponsor. Your logo will show up here with a link to your website. [[Become a sponsor](https://opencollective.com/wp-graphql#sponsor)]
+
+<a href="https://opencollective.com/wp-graphql/sponsor/0/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/0/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/1/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/1/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/2/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/2/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/3/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/3/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/4/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/4/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/5/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/5/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/6/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/6/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/7/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/7/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/8/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/8/avatar.svg"></a>
+<a href="https://opencollective.com/wp-graphql/sponsor/9/website" target="_blank"><img src="https://opencollective.com/wp-graphql/sponsor/9/avatar.svg"></a>
+
+

@@ -21,7 +21,9 @@ class MenuItemConnectionQueriesTest extends \Codeception\TestCase\WPTestCase {
 
 		// Create some Post menu items.
 		for ( $x = 1; $x <= $count; $x++ ) {
-			$post_id = $this->factory()->post->create();
+			$post_id = $this->factory()->post->create([
+				'post_status' => 'publish'
+			]);
 			$post_ids[] = $post_id;
 
 			$menu_item_ids[] = $this->createMenuItem(
@@ -95,6 +97,9 @@ class MenuItemConnectionQueriesTest extends \Codeception\TestCase\WPTestCase {
 						}
 					}
 				}
+				nodes {
+				  menuItemId
+				}
 			}
 		}
 		';
@@ -103,6 +108,35 @@ class MenuItemConnectionQueriesTest extends \Codeception\TestCase\WPTestCase {
 
 		// The query should return no menu items since no where args were specified.
 		$this->assertEquals( 0, count( $actual['data']['menuItems']['edges'] ) );
+		$this->assertEquals( 0, count( $actual['data']['menuItems']['edges'] ) );
+	}
+
+	public function testMenuItemsQueryNodes() {
+
+		$count = 10;
+		$created = $this->createMenuItems( 'my-test-menu-id', $count );
+
+		$menu_item_id = intval( $created['menu_item_ids'][2] );
+		$post_id = intval( $created['post_ids'][2] );
+
+		$query = '
+		{
+			menuItems( where: { id: ' . $menu_item_id . ' } ) {
+				nodes {
+				   menuItemId
+				}
+			}
+		}
+		';
+
+		$actual = do_graphql_request( $query );
+
+		foreach ( $actual['data']['menuItems']['nodes'] as $node ) {
+			$this->assertTrue( in_array( $node['menuItemId'], [ $menu_item_id ], true ) );
+		}
+
+		$this->assertEquals( 1, count( $actual['data']['menuItems']['nodes'] ) );
+
 	}
 
 	public function testMenuItemsQueryById() {
@@ -248,6 +282,7 @@ class MenuItemConnectionQueriesTest extends \Codeception\TestCase\WPTestCase {
 		';
 
 		$actual = do_graphql_request( $query );
+
 
 		// Perform some common assertions. Slice the created IDs to the limit.
 		$menu_item_ids = array_slice( $created['menu_item_ids'], 0, $limit );

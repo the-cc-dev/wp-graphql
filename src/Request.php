@@ -21,6 +21,7 @@ class Request {
 	 * App context for this request.
 	 *
 	 * @var \WPGraphQL\AppContext
+	 * @access private
 	 */
 	private $app_context;
 
@@ -28,13 +29,15 @@ class Request {
 	 * Request data.
 	 *
 	 * @var array
+	 * @access private
 	 */
 	private $data;
 
 	/**
 	 * Cached global post.
 	 *
-	 * @var WP_Post
+	 * @var \WP_Post
+	 * @access private
 	 */
 	private $global_post;
 
@@ -43,6 +46,7 @@ class Request {
 	 * OperationParams.
 	 *
 	 * @var OperationParams|OperationParams[]
+	 * @access private
 	 */
 	private $params;
 
@@ -50,8 +54,9 @@ class Request {
 	 * Schema for this request.
 	 *
 	 * @var \WPGraphQL\WPSchema
+	 * @access public
 	 */
-	private $schema;
+	public $schema;
 
 	/**
 	 * Constructor
@@ -59,6 +64,10 @@ class Request {
 	 * @param  array|null $data The request data (for non-HTTP requests).
 	 *
 	 * @return void
+	 *
+	 * @access public
+	 *
+	 * @throws \Exception
 	 */
 	public function __construct( $data = null ) {
 
@@ -82,14 +91,37 @@ class Request {
 		// Set request data for passed-in (non-HTTP) requests.
 		$this->data = $data;
 
-		$this->schema      = \WPGraphQL::get_schema();
+		// Get the Schema
+		$this->schema = \WPGraphQL::get_schema();
+
+		// Get the App Context
 		$this->app_context = \WPGraphQL::get_app_context();
+
+		/**
+		 * Configure the app_context which gets passed down to all the resolvers.
+		 *
+		 * @since 0.0.4
+		 */
+		$app_context           = new AppContext();
+		$app_context->viewer   = wp_get_current_user();
+		$app_context->root_url = get_bloginfo( 'url' );
+		$app_context->request  = ! empty( $_REQUEST ) ? $_REQUEST : null; // phpcs:ignore
+		$this->app_context     = $app_context;
 	}
 
 	/**
 	 * Apply filters and do actions before GraphQL execution
+	 *
+	 * @access private
+	 *
+	 * @return void
 	 */
 	private function before_execute() {
+
+		/**
+		 * Filter "is_graphql_request" to return true
+		 */
+		\WPGraphQL::__set_is_graphql_request( true );
 
 		/**
 		 * Store the global post so it can be reset after GraphQL execution
@@ -113,14 +145,127 @@ class Request {
 	}
 
 	/**
+	 * Checks authentication errors.
+	 *
+	 * False will mean there are no detected errors and
+	 * execution will continue.
+	 *
+	 * Anything else (true, WP_Error, thrown exception, etc) will prevent execution of the GraphQL
+	 * request.
+	 *
+	 * @access protected
+	 * @throws \Exception
+	 *
+	 * @return boolean
+	 */
+	protected function has_authentication_errors() {
+
+		/**
+		 * Bail if this is not an HTTP request.
+		 *
+		 * Auth for internal requests will happen
+		 * via WordPress internals.
+		 */
+		if ( ! is_graphql_http_request() ) {
+			return false;
+		}
+
+		/**
+		 * Access the global $wp_rest_auth_cookie
+		 */
+		global $wp_rest_auth_cookie;
+
+		/**
+		 * Default state of the authentication errors
+		 */
+		$authentication_errors = false;
+
+		/**
+		 * Is cookie authentication NOT being used?
+		 *
+		 * If we get an auth error, but the user is still logged in, another auth mechanism
+		 * (JWT, oAuth, etc) must have been used.
+		 */
+		if ( true !== $wp_rest_auth_cookie && is_user_logged_in() ) {
+
+			/**
+			 * Return filtered authentication errors
+			 */
+			return $this->filtered_authentication_errors( $authentication_errors );
+
+			/**
+			 * If the user is not logged in, determine if there's a nonce
+			 */
+		} else {
+
+			$nonce = null;
+
+			if ( isset( $_REQUEST['_wpnonce'] ) ) {
+				$nonce = $_REQUEST['_wpnonce'];
+			} elseif ( isset( $_SERVER['HTTP_X_WP_NONCE'] ) ) {
+				$nonce = $_SERVER['HTTP_X_WP_NONCE'];
+			}
+
+			if ( null === $nonce ) {
+				// No nonce at all, so act as if it's an unauthenticated request.
+				wp_set_current_user( 0 );
+
+				return $this->filtered_authentication_errors( $authentication_errors );
+			}
+
+			// Check the nonce.
+			$result = wp_verify_nonce( $nonce, 'wp_rest' );
+
+			if ( ! $result ) {
+				throw new \Exception( __( 'Cookie nonce is invalid', 'wp-graphql' ) );
+			}
+		}
+
+		/**
+		 * Return the filtered authentication errors
+		 */
+		return $this->filtered_authentication_errors( $authentication_errors );
+	}
+
+	/**
+	 * Filter Authentication errors. Allows plugins that authenticate to hook in and prevent
+	 * execution if Authentication errors exist.
+	 *
+	 * @param boolean $authentication_errors Whether there are authentication errors with the request
+	 *
+	 * @access protected
+	 * @return boolean
+	 */
+	protected function filtered_authentication_errors( $authentication_errors = false ) {
+
+		/**
+		 * If false, there are no authentication errors. If true, execution of the
+		 * GraphQL request will be prevented and an error will be thrown.
+		 *
+		 * @param boolean $authentication_errors Whether there are authentication errors with the request
+		 * @param Request $this Instance of the Request
+		 */
+		return apply_filters( 'graphql_authentication_errors', $authentication_errors, $this );
+	}
+
+	/**
 	 * Performs actions and runs filters after execution completes
 	 *
 	 * @param mixed|array|object $response The response from execution. Array for batch requests,
 	 *                                     single object for individual requests
-	 *
 	 * @return array
+	 * @access private
+	 *
+	 * @throws \Exception
 	 */
 	private function after_execute( $response ) {
+
+		/**
+		 * If there are authentication errors, prevent execution and throw an exception.
+		 */
+		if ( false !== $this->has_authentication_errors() ) {
+			throw new \Exception( __( 'Authentication Error', 'wp-graphql' ) );
+		}
 
 		/**
 		 * If the params and the $response are both arrays
@@ -139,9 +284,14 @@ class Request {
 		 * This allows for a GraphQL query to be used in the middle of post content, such as in a Shortcode
 		 * without disrupting the flow of the post as the global POST before and after GraphQL execution will be
 		 * the same.
+		 *
+		 * We cannot use wp_reset_postdata here because it just resets the post from the global query which can
+		 * be anything the because the resolvers themself can set it to whatever. So we just manually reset the
+		 * post with setup_postdata we cached before this request.
 		 */
 		if ( ! empty( $this->global_post ) ) {
 			$GLOBALS['post'] = $this->global_post;
+			setup_postdata( $this->global_post );
 		}
 
 		/**
@@ -157,6 +307,7 @@ class Request {
 	 * @param array          $response The response for your GraphQL request
 	 * @param mixed|Int|null $key      The array key of the params for batch requests
 	 *
+	 *                                 @access private
 	 *
 	 * @return array
 	 */
@@ -169,12 +320,12 @@ class Request {
 
 		if ( ! $key && $this->params ) {
 			$params = $this->params;
-		} else if ( is_array( $this->params ) && isset( $this->params[ $key ] ) ) {
+		} elseif ( is_array( $this->params ) && isset( $this->params[ $key ] ) ) {
 			$params = $this->params[ $key ];
 		}
 
 		$operation = isset( $params->operation ) ? $params->operation : '';
-		$query = isset( $params->query ) ? $params->query : '';
+		$query     = isset( $params->query ) ? $params->query : '';
 		$variables = isset( $params->variables ) ? $params->variables : null;
 
 		/**
@@ -227,6 +378,11 @@ class Request {
 		 */
 		do_action( 'graphql_return_response', $filtered_response, $response, $this->schema, $operation, $query, $variables );
 
+		/**
+		 * Filter "is_graphql_request" back to false.
+		 */
+		\WPGraphQL::__set_is_graphql_request( false );
+
 		return $filtered_response;
 	}
 
@@ -234,6 +390,8 @@ class Request {
 	 * Run action for a request.
 	 *
 	 * @param  OperationParams $params OperationParams for the request.
+	 *
+	 *                                 @access private
 	 *
 	 * @return void
 	 */
@@ -252,6 +410,7 @@ class Request {
 	/**
 	 * Execute an internal request (graphql() function call).
 	 *
+	 * @access public
 	 * @return array
 	 * @throws \Exception
 	 */
@@ -297,6 +456,7 @@ class Request {
 	/**
 	 * Execute an HTTP request.
 	 *
+	 * @access public
 	 * @return array
 	 * @throws \Exception
 	 */
@@ -325,6 +485,7 @@ class Request {
 	/**
 	 * Get the operation params for the request.
 	 *
+	 * @access public
 	 * @return OperationParams
 	 */
 	public function get_params() {

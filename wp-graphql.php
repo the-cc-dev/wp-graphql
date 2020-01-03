@@ -5,21 +5,21 @@
  * Description: GraphQL API for WordPress
  * Author: WPGraphQL
  * Author URI: http://www.wpgraphql.com
- * Version: 0.2.1
+ * Version: 0.5.1
  * Text Domain: wp-graphql
  * Domain Path: /languages/
  * Requires at least: 4.7.0
  * Tested up to: 4.7.1
- * Requires PHP: 5.5
+ * Requires PHP: 7.0
  * License: GPL-3
  * License URI: https://www.gnu.org/licenses/gpl-3.0.html
- *
  *
  * @package  WPGraphQL
  * @category Core
  * @author   WPGraphQL
- * @version  0.2.1
+ * @version  0.5.1
  */
+
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -31,7 +31,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * This file should only exist locally or when CI bootstraps the environment for testing
  */
 if ( file_exists( __DIR__ . '/c3.php' ) ) {
-    require_once( __DIR__ . '/c3.php' );
+	require_once __DIR__ . '/c3.php';
 }
 
 /**
@@ -104,6 +104,11 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		public static $allowed_taxonomies;
 
 		/**
+		 * @var boolean
+		 */
+		protected static $is_graphql_request;
+
+		/**
 		 * The instance of the WPGraphQL object
 		 *
 		 * @return object|WPGraphQL - The one true WPGraphQL
@@ -113,7 +118,7 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		public static function instance() {
 
 			if ( ! isset( self::$instance ) && ! ( self::$instance instanceof WPGraphQL ) ) {
-				self::$instance = new WPGraphQL;
+				self::$instance = new WPGraphQL();
 				self::$instance->setup_constants();
 				self::$instance->includes();
 				self::$instance->actions();
@@ -167,7 +172,7 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 
 			// Plugin version.
 			if ( ! defined( 'WPGRAPHQL_VERSION' ) ) {
-				define( 'WPGRAPHQL_VERSION', '0.2.1' );
+				define( 'WPGRAPHQL_VERSION', '0.5.1' );
 			}
 
 			// Plugin Folder Path.
@@ -185,7 +190,7 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 				define( 'WPGRAPHQL_PLUGIN_FILE', __FILE__ );
 			}
 
-			// Whether to autoload the files or not
+			// Whether to autoload the files or not.
 			if ( ! defined( 'WPGRAPHQL_AUTOLOAD' ) ) {
 				define( 'WPGRAPHQL_AUTOLOAD', true );
 			}
@@ -193,6 +198,11 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			// Whether to run the plugin in debug mode. Default is false.
 			if ( ! defined( 'GRAPHQL_DEBUG' ) ) {
 				define( 'GRAPHQL_DEBUG', false );
+			}
+
+			// The minimum version of PHP this plugin requires to work properly
+			if ( ! defined( 'GRAPQHL_MIN_PHP_VERSION' ) ) {
+				define( 'GRAPQHL_MIN_PHP_VERSION', '7.0' );
 			}
 
 		}
@@ -217,14 +227,28 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			 * so this is set to false for tests.
 			 */
 			if ( defined( 'WPGRAPHQL_AUTOLOAD' ) && true === WPGRAPHQL_AUTOLOAD ) {
-				// Autoload Required Classes
-				require_once( WPGRAPHQL_PLUGIN_DIR . 'vendor/autoload.php' );
+				// Autoload Required Classes.
+				require_once WPGRAPHQL_PLUGIN_DIR . 'vendor/autoload.php';
 			}
 
+			// Required non-autoloaded classes.
+			require_once WPGRAPHQL_PLUGIN_DIR . 'access-functions.php';
 
-			// Required non-autoloaded classes
-			require_once( WPGRAPHQL_PLUGIN_DIR . 'access-functions.php' );
+		}
 
+		/**
+		 * Set whether the request is a GraphQL request or not
+		 * @param bool $is_graphql_request
+		 */
+		public static function __set_is_graphql_request( $is_graphql_request = false ) {
+			self::$is_graphql_request = $is_graphql_request;
+		}
+
+		/**
+		 * @return bool
+		 */
+		public static function is_graphql_request() {
+			return self::$is_graphql_request;
 		}
 
 		/**
@@ -237,19 +261,21 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			 * allowing for both plugins and themes to register
 			 * things before graphql_init
 			 */
-			add_action( 'after_setup_theme', function () {
+			add_action(
+				'after_setup_theme',
+				function() {
 
-				new \WPGraphQL\Data\Config();
-				new \WPGraphQL\Router();
+					new \WPGraphQL\Data\Config();
+					new \WPGraphQL\Router();
 
-				/**
-				 * Fire off init action
-				 *
-				 * @param WPGraphQL $instance The instance of the WPGraphQL class
-				 */
-				do_action( 'graphql_init', self::$instance );
-
-			} );
+					/**
+					 * Fire off init action
+					 *
+					 * @param WPGraphQL $instance The instance of the WPGraphQL class
+					 */
+					do_action( 'graphql_init', self::$instance );
+				}
+			);
 
 			/**
 			 * Flush permalinks if the registered GraphQL endpoint has not yet been registered.
@@ -259,16 +285,32 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			/**
 			 * Hook in before fields resolve to check field permissions
 			 */
-			add_action( 'graphql_before_resolve_field', [
-				'\WPGraphQL\Utils\InstrumentSchema',
-				'check_field_permissions'
-			], 10, 8 );
+			add_action( 'graphql_before_resolve_field', [ '\WPGraphQL\Utils\InstrumentSchema', 'check_field_permissions' ], 10, 8 );
 
 			/**
 			 * Determine what to show in graphql
 			 */
 			add_action( 'init_graphql_request', 'register_initial_settings', 10 );
-			add_action( 'init_graphql_request', [ $this, 'setup_types' ], 10 );
+			add_action( 'init', [ $this, 'setup_types' ], 10 );
+
+			// Throw an exception
+			add_action( 'do_graphql_request', [ $this, 'min_php_version_check' ] );
+
+		}
+
+		/**
+		 * Check if the minimum PHP version requirement is met before execution begins.
+		 *
+		 * If the server is running a lower version than required, throw an exception and prevent
+		 * further execution.
+		 *
+		 * @throws Exception
+		 */
+		public function min_php_version_check() {
+
+			if ( defined( 'GRAPQHL_MIN_PHP_VERSION' ) && version_compare( PHP_VERSION, GRAPQHL_MIN_PHP_VERSION, '<' ) ) {
+				throw new \Exception( sprintf( __( 'The server\'s current PHP version %1$s is lower than the WPGraphQL minimum required version: %2$s', 'wp-graphql' ), PHP_VERSION, GRAPQHL_MIN_PHP_VERSION ) );
+			}
 
 		}
 
@@ -278,20 +320,19 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		public function setup_types() {
 
 			/**
-			 * Only do this if we're in the context of a GraphQL request (note, this doesn't
-			 * mean just an HTTP request, but even an internal request via "do_graphql_request")
+			 * Setup the settings, post_types and taxonomies to show_in_graphql
 			 */
-			if ( defined( 'GRAPHQL_REQUEST' ) && true === GRAPHQL_REQUEST ) {
+			self::show_in_graphql();
+		}
 
-				/**
-				 * Setup the settings, post_types and taxonomies to show_in_graphql
-				 */
-				\WPGraphQL::show_in_graphql();
-				\WPGraphQL::get_allowed_post_types();
-				\WPGraphQL::get_allowed_taxonomies();
-
-			}
-
+		/**
+		 * This gets the allowed post types and taxonomies when a GraphQL request has started
+		 *
+		 * @deprecated v0.4.3
+		 */
+		public function get_allowed_types() {
+			self::get_allowed_post_types();
+			self::get_allowed_taxonomies();
 		}
 
 		/**
@@ -312,10 +353,7 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			/**
 			 * Instrument the Schema to provide Resolve Hooks and sanitize Schema output
 			 */
-			add_filter( 'graphql_schema', [
-				'\WPGraphQL\Utils\InstrumentSchema',
-				'instrument_schema'
-			], 10, 1 );
+			add_filter( 'graphql_schema', [ '\WPGraphQL\Utils\InstrumentSchema', 'instrument_schema' ], 10, 1 );
 		}
 
 		/**
@@ -351,48 +389,47 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 
 			global $wp_post_types, $wp_taxonomies;
 
-			// Adds GraphQL support for attachments
+			// Adds GraphQL support for attachments.
 			if ( isset( $wp_post_types['attachment'] ) ) {
 				$wp_post_types['attachment']->show_in_graphql     = true;
 				$wp_post_types['attachment']->graphql_single_name = 'mediaItem';
 				$wp_post_types['attachment']->graphql_plural_name = 'mediaItems';
 			}
 
-			// Adds GraphQL support for pages
+			// Adds GraphQL support for pages.
 			if ( isset( $wp_post_types['page'] ) ) {
 				$wp_post_types['page']->show_in_graphql     = true;
 				$wp_post_types['page']->graphql_single_name = 'page';
 				$wp_post_types['page']->graphql_plural_name = 'pages';
 			}
 
-			// Adds GraphQL support for posts
+			// Adds GraphQL support for posts.
 			if ( isset( $wp_post_types['post'] ) ) {
 				$wp_post_types['post']->show_in_graphql     = true;
 				$wp_post_types['post']->graphql_single_name = 'post';
 				$wp_post_types['post']->graphql_plural_name = 'posts';
 			}
 
-			// Adds GraphQL support for posts
-			if ( isset( $wp_post_types['revision'] ) ) {
-				$wp_post_types['revision']->show_in_graphql     = true;
-				$wp_post_types['revision']->graphql_single_name = 'revision';
-				$wp_post_types['revision']->graphql_plural_name = 'revisions';
-			}
-
-			// Adds GraphQL support for categories
+			// Adds GraphQL support for categories.
 			if ( isset( $wp_taxonomies['category'] ) ) {
 				$wp_taxonomies['category']->show_in_graphql     = true;
 				$wp_taxonomies['category']->graphql_single_name = 'category';
 				$wp_taxonomies['category']->graphql_plural_name = 'categories';
 			}
 
-			// Adds GraphQL support for tags
+			// Adds GraphQL support for tags.
 			if ( isset( $wp_taxonomies['post_tag'] ) ) {
 				$wp_taxonomies['post_tag']->show_in_graphql     = true;
 				$wp_taxonomies['post_tag']->graphql_single_name = 'tag';
 				$wp_taxonomies['post_tag']->graphql_plural_name = 'tags';
 			}
 
+			// Adds GraphQL support for post formats.
+			if ( isset( $wp_taxonomies['post_format'] ) ) {
+				$wp_taxonomies['post_format']->show_in_graphql = true;
+				$wp_taxonomies['post_format']->graphql_single_name = 'postFormat';
+				$wp_taxonomies['post_format']->graphql_plural_name = 'postFormats';
+			}
 		}
 
 		/**
@@ -400,28 +437,37 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		 * are set to show_in_graphql, but allows for external code (plugins/theme) to filter the
 		 * list of allowed_post_types to add/remove additional post_types
 		 *
+		 * @param array $args Arguments to filter allowed post types
+		 *
 		 * @return array
 		 * @since  0.0.4
 		 * @access public
 		 */
-		public static function get_allowed_post_types() {
+		public static function get_allowed_post_types( $args = [] ) {
 
 			/**
 			 * Get all post_types
 			 */
-			$post_types = get_post_types( [
-				'show_in_graphql' => true,
-			] );
+			$post_types = get_post_types( array_merge( [ 'show_in_graphql' => true ], $args ) );
 
 			/**
 			 * Validate that the post_types have a graphql_single_name and graphql_plural_name
 			 */
-			array_map( function ( $post_type ) {
-				$post_type_object = get_post_type_object( $post_type );
-				if ( empty( $post_type_object->graphql_single_name ) || empty( $post_type_object->graphql_plural_name ) ) {
-					throw new \GraphQL\Error\UserError( sprintf( __( 'The %s post_type isn\'t configured properly to show in GraphQL. It needs a "graphql_single_name" and a "graphql_plural_name"', 'wp-graphql' ), $post_type_object->name ) );
-				}
-			}, $post_types );
+			array_map(
+				function( $post_type ) {
+					$post_type_object = get_post_type_object( $post_type );
+					if ( empty( $post_type_object->graphql_single_name ) || empty( $post_type_object->graphql_plural_name ) ) {
+						throw new \GraphQL\Error\UserError(
+							sprintf(
+							/* translators: %s will replaced with the registered type */
+								__( 'The %s post_type isn\'t configured properly to show in GraphQL. It needs a "graphql_single_name" and a "graphql_plural_name"', 'wp-graphql' ),
+								$post_type_object->name
+							)
+						);
+					}
+				},
+				$post_types
+			);
 
 			/**
 			 * Define the $allowed_post_types to be exposed by GraphQL Queries Pass through a filter
@@ -434,12 +480,8 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			 *
 			 * @return array
 			 */
-			self::$allowed_post_types = apply_filters( 'graphql_post_entities_allowed_post_types', $post_types );
+			return apply_filters( 'graphql_post_entities_allowed_post_types', $post_types );
 
-			/**
-			 * Returns the array of allowed_post_types
-			 */
-			return self::$allowed_post_types;
 		}
 
 		/**
@@ -456,37 +498,43 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			/**
 			 * Get all taxonomies
 			 */
-			$taxonomies = get_taxonomies( [
-				'show_in_graphql' => true,
-			] );
+			$taxonomies = get_taxonomies(
+				[
+					'show_in_graphql' => true,
+				]
+			);
 
 			/**
 			 * Validate that the taxonomies have a graphql_single_name and graphql_plural_name
 			 */
-			array_map( function ( $taxonomy ) {
-				$tax_object = get_taxonomy( $taxonomy );
-				if ( empty( $tax_object->graphql_single_name ) || empty( $tax_object->graphql_plural_name ) ) {
-					throw new \GraphQL\Error\UserError( sprintf( __( 'The %s taxonomy isn\'t configured properly to show in GraphQL. It needs a "graphql_single_name" and a "graphql_plural_name"', 'wp-graphql' ), $tax_object->name ) );
-				}
-			}, $taxonomies );
-
-			/**
-			 * Define the $allowed_taxonomies to be exposed by GraphQL Queries Pass through a filter
-			 * to allow the taxonomies to be modified (for example if a certain taxonomy should not
-			 * be exposed to the GraphQL API)
-			 *
-			 * @since 0.0.2
-			 * @return array
-			 *
-			 * @param array $taxonomies Array of taxonomy objects
-			 */
-			self::$allowed_taxonomies = apply_filters( 'graphql_term_entities_allowed_taxonomies', $taxonomies );
+			array_map(
+				function( $taxonomy ) {
+					$tax_object = get_taxonomy( $taxonomy );
+					if ( empty( $tax_object->graphql_single_name ) || empty( $tax_object->graphql_plural_name ) ) {
+						throw new \GraphQL\Error\UserError(
+							sprintf(
+							/* translators: %s will replaced with the registered taxonomty */
+								__( 'The %s taxonomy isn\'t configured properly to show in GraphQL. It needs a "graphql_single_name" and a "graphql_plural_name"', 'wp-graphql' ),
+								$tax_object->name
+							)
+						);
+					}
+				},
+				$taxonomies
+			);
 
 			/**
 			 * Returns the array of $allowed_taxonomies
 			 */
-			return self::$allowed_taxonomies;
+			return apply_filters( 'graphql_term_entities_allowed_taxonomies', $taxonomies );
 
+		}
+
+		/**
+		 * Allow Schema to be cleared
+		 */
+		public static function __clear_schema() {
+			self::$schema = null;
 		}
 
 		/**
@@ -495,6 +543,8 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		 *
 		 * @access protected
 		 * @return \WPGraphQL\WPSchema
+		 *
+		 * @throws Exception
 		 */
 		public static function get_schema() {
 
@@ -503,25 +553,11 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			 */
 			do_action( 'graphql_get_schema', self::$schema );
 
-			/**
-			 * Initialize the TypeRegistry
-			 */
-			\WPGraphQL\TypeRegistry::init();
-			\WPGraphQL\SchemaRegistry::init();
-
 			if ( null === self::$schema ) {
 
-				/**
-				 * Filter the Active Schema, allowing for custom Schemas to be active instead
-				 * of the core schema
-				 */
-				$active_schema = apply_filters( 'graphql_active_schema', 'core' );
-				$executable_schema = \WPGraphQL\SchemaRegistry::get_schema( $active_schema );
-
-				/**
-				 * Generate the Schema
-				 */
-				$schema = new \WPGraphQL\WPSchema( $executable_schema );
+				$type_registry = new \WPGraphQL\Registry\TypeRegistry();
+				$schema_registry = new \WPGraphQL\Registry\SchemaRegistry( $type_registry );
+				$schema        = $schema_registry->get_schema();
 
 				/**
 				 * Generate & Filter the schema.
@@ -533,14 +569,12 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 				 *                                           information about the context we know at this point
 				 */
 				self::$schema = apply_filters( 'graphql_schema', $schema, self::get_app_context() );
-
 			}
 
 			/**
 			 * Return the Schema after applying filters
 			 */
 			return ! empty( self::$schema ) ? self::$schema : null;
-
 		}
 
 		/**
@@ -551,8 +585,8 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 		 */
 		public static function get_static_schema() {
 			$schema = null;
-			if ( file_exists( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' ) && ! empty( file_get_contents( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' ) ) ) {
-				$schema = file_get_contents( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' );
+			if ( file_exists( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' ) && ! empty( file_get_contents( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' ) ) ) { // phpcs:ignore
+				$schema = file_get_contents( WPGRAPHQL_PLUGIN_DIR . 'schema.graphql' ); // phpcs:ignore
 			}
 
 			return $schema;
@@ -574,12 +608,10 @@ if ( ! class_exists( 'WPGraphQL' ) ) :
 			$app_context           = new \WPGraphQL\AppContext();
 			$app_context->viewer   = wp_get_current_user();
 			$app_context->root_url = get_bloginfo( 'url' );
-			$app_context->request  = ! empty( $_REQUEST ) ? $_REQUEST : null;
+			$app_context->request  = ! empty( $_REQUEST ) ? $_REQUEST : null; // phpcs:ignore
 
 			return $app_context;
-
 		}
-
 	}
 endif;
 
@@ -600,5 +632,5 @@ if ( ! function_exists( 'graphql_init' ) ) {
 graphql_init();
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
-	require_once( 'cli/wp-cli.php' );
+	require_once 'cli/wp-cli.php';
 }

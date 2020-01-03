@@ -6,6 +6,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 	public $current_date;
 	public $current_date_gmt;
 	public $admin;
+	public $contributor;
 
 	public function setUp() {
 		// before
@@ -16,6 +17,9 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		$this->current_date_gmt = gmdate( 'Y-m-d H:i:s', $this->current_time );
 		$this->admin            = $this->factory()->user->create( [
 			'role' => 'administrator',
+		] );
+		$this->contributor = $this->factory()->user->create( [
+			'role' => 'contributor',
 		] );
 
 		add_shortcode( 'wpgql_test_shortcode', function ( $attrs, $content = null ) {
@@ -120,6 +124,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 	 * This tests creating a single post with data and retrieving said post via a GraphQL query
 	 *
 	 * @since 0.0.5
+	 * @throws Exception
 	 */
 	public function testPostQuery() {
 
@@ -130,12 +135,17 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 			'post_type' => 'post',
 		] );
 
+		add_filter('upload_dir', function( $param ) {
+			$dir = trailingslashit( WP_CONTENT_DIR ) . 'uploads';
+			$param['path'] = $dir;
+			return $param;
+		});
+
 		/**
 		 * Create a featured image and attach it to the post
 		 */
-		$featured_image_id = $this->createPostObject( [
-			'post_type' => 'attachment',
-		] );
+		$filename      = ( WPGRAPHQL_PLUGIN_DIR . '/tests/_data/images/test.png' );
+		$featured_image_id = $this->factory()->attachment->create_upload_object( $filename );
 		update_post_meta( $post_id, '_thumbnail_id', $featured_image_id );
 
 		/**
@@ -183,9 +193,14 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 				guid
 				featuredImage{
 					mediaItemId
+					thumbnail: sourceUrl(size: THUMBNAIL)
+					medium: sourceUrl(size: MEDIUM)
+					full: sourceUrl(size: LARGE)
+					sourceUrl
 				}
 			}
 		}";
+
 
 		/**
 		 * Run the GraphQL query
@@ -205,14 +220,14 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 					'commentCount'  => null,
 					'commentStatus' => 'open',
 					'content'       => apply_filters( 'the_content', 'Test page content' ),
-					'date'          => $this->current_date,
-					'dateGmt'       => \WPGraphQL\Types::prepare_date_response( get_post( $this->attachment_id )->post_modified_gmt ),
+					'date'          => \WPGraphQL\Types::prepare_date_response( null, $this->current_date ),
+					'dateGmt'       => \WPGraphQL\Types::prepare_date_response( get_post( $post_id )->post_modified_gmt ),
 					'desiredSlug'   => null,
 					'editLast'      => [
 						'userId' => $this->admin,
 					],
 					'editLock'      => [
-						'editTime' => $this->current_date,
+						'editTime' => \WPGraphQL\Types::prepare_date_response( null, $this->current_date ),
 						'user'     => [
 							'userId' => $this->admin,
 						],
@@ -227,17 +242,24 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 					'toPing'        => null,
 					'pinged'        => null,
 					'modified'      => get_post( $post_id )->post_modified,
-					'modifiedGmt'   => \WPGraphQL\Types::prepare_date_response( get_post( $this->attachment_id )->post_modified_gmt ),
+					'modifiedGmt'   => \WPGraphQL\Types::prepare_date_response( get_post( $post_id )->post_modified_gmt ),
 					'title'         => apply_filters( 'the_title', 'Test Title' ),
 					'guid'          => get_post( $post_id )->guid,
 					'featuredImage' => [
 						'mediaItemId' => $featured_image_id,
+						'thumbnail' => wp_get_attachment_image_src( $featured_image_id, 'thumbnail' )[0],
+						'medium' => wp_get_attachment_image_src( $featured_image_id, 'medium' )[0],
+						'full' => wp_get_attachment_image_src( $featured_image_id, 'large' )[0],
+						'sourceUrl' => wp_get_attachment_image_src( $featured_image_id, 'full' )[0]
 					],
 				],
 			],
 		];
 
+		wp_delete_attachment( $featured_image_id, true );
+
 		$this->assertEquals( $expected, $actual );
+
 	}
 
 	/**
@@ -269,30 +291,9 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		$actual = do_graphql_request( $query );
 
 		/**
-		 * Establish the expectation for the output of the query
+		 * There should be an internal server error when requesting a non-existent post
 		 */
-		$expected = [
-			'data'   => [
-				'post' => null,
-			],
-			'errors' => [
-				[
-					'message'   => 'No post was found with the ID: doesNotExist',
-					'locations' => [
-						[
-							'line'   => 3,
-							'column' => 4,
-						],
-					],
-					'path'      => [
-						'post',
-					],
-					'category'  => 'user',
-				],
-			],
-		];
-
-		$this->assertEquals( $expected, $actual );
+		$this->assertArrayHasKey( 'errors', $actual );
 	}
 
 	/**
@@ -423,6 +424,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		 */
 		$post_id = $this->createPostObject( [
 			'post_type' => 'post',
+			'post_status' => 'publish'
 		] );
 
 		// Create a comment and assign it to post.
@@ -759,11 +761,16 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 	 */
 	public function testPostQueryWithCategories() {
 
+		wp_set_current_user( $this->admin );
+
 		/**
 		 * Create a post
 		 */
 		$post_id = $this->createPostObject( [
 			'post_type' => 'post',
+			'post_status' => 'publish',
+			'post_author' => $this->admin,
+			'post_title' => 'test post',
 		] );
 
 		// Create a comment and assign it to post.
@@ -771,7 +778,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 			'name' => 'A category',
 		] );
 
-		wp_set_object_terms( $post_id, $category_id, 'category' );
+		wp_set_object_terms( $post_id, $category_id, 'category', false );
 
 		/**
 		 * Create the global ID based on the post_type and the created $id
@@ -801,6 +808,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		 */
 		$actual = do_graphql_request( $query );
 
+
 		/**
 		 * Establish the expectation for the output of the query
 		 */
@@ -821,6 +829,8 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 				],
 			],
 		];
+
+
 
 		$this->assertEquals( $expected, $actual );
 	}
@@ -997,9 +1007,13 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 	 */
 	public function testPageByQueries() {
 
+		wp_set_current_user( $this->admin );
+
 		$post_id = $this->createPostObject( [
 			'post_type'  => 'page',
 			'post_title' => 'Page Dawg',
+			'post_author' => $this->admin,
+			'post_status' => 'publish'
 		] );
 
 		$path      = get_page_uri( $post_id );
@@ -1119,9 +1133,10 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		$actual = do_graphql_request( $query );
 
 		/**
-		 * This should return an error as we tried to query for a deleted post
+		 * This should not return errors, and postBy should be null
 		 */
-		$this->assertArrayHasKey( 'errors', $actual );
+		$this->assertArrayNotHasKey( 'errors', $actual );
+		$this->assertNull( $actual['data']['postBy'] );
 
 	}
 
@@ -1159,9 +1174,10 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		$actual = do_graphql_request( $query );
 
 		/**
-		 * This should return an error as we tried to query for a post using a Page ID
+		 * This should not return an error, but should return null for the postBy response
 		 */
-		$this->assertArrayHasKey( 'errors', $actual );
+		$this->assertArrayNotHasKey( 'errors', $actual );
+		$this->assertNull( $actual['data']['postBy'] );
 
 	}
 
@@ -1220,6 +1236,7 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		/**
 		 * Run the same query but request the fields in raw form.
 		 */
+		wp_set_current_user( $this->admin );
 		$graphql_query = "
 		query {
 			post(id: \"{$global_id}\") {
@@ -1338,9 +1355,15 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		do_graphql_request( $graphql_query );
 
 		/**
-		 * Asset that the query has been reset to the main query.
+		 * Assert that the query has been reset to the main query.
 		 */
 		$this->assertEquals( $main_query_post_id, $post->ID );
+
+		// setup_postdata sets the global $id too so assert it is reset back to
+		// original
+		// https://github.com/WordPress/WordPress/blob/b5542c6b1b41d69b4e5c26ef8280c6e85de67224/wp-includes/class-wp-query.php#L4158
+		$this->assertEquals( $main_query_post_id, $GLOBALS['id'] );
+
 	}
 
 	/**
@@ -1512,6 +1535,314 @@ class PostObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		 * Asset that the query has been reset to the main query.
 		 */
 		$this->assertEquals( $main_query_post_id, $post->ID );
+
+	}
+
+	/**
+	 * Assert that no data is being leaked on private posts that are directly queried without auth.
+	 */
+	public function testPrivatePosts() {
+
+		$post_id = $this->factory()->post->create( [
+			'post_status' => 'private',
+			'post_content' => 'Test',
+		] );
+
+		/**
+		 * Create the global ID based on the post_type and the created $id
+		 */
+		$global_id = \GraphQLRelay\Relay::toGlobalId( 'post', $post_id );
+
+		$query = "
+		query {
+			postBy(id: \"{$global_id}\") {
+			    status
+			    title
+			    categories {
+			      nodes {
+			        id
+			        name
+			        slug
+			      }
+			    }
+		    }
+	    }";
+
+		$expected = [
+			'data' => [
+				'postBy' => [
+					'status' => null,
+					'title' => null,
+					'categories' => [
+						'nodes' => [],
+					],
+				]
+			]
+		];
+
+		$actual = do_graphql_request( $query );
+		$this->assertEquals( $expected, $actual );
+
+	}
+
+	/**
+	 * Test restricted posts returned on certain statuses
+	 * @dataProvider dataProviderRestrictedPosts
+	 */
+	public function testRestrictedPosts( $status, $author, $user, $restricted ) {
+
+		if ( ! empty( $author ) ) {
+			$author = $this->{$author};
+		}
+		if ( ! empty( $user ) ) {
+			$user = $this->{$user};
+		}
+
+		$title = 'Content from author: ' . (string)$author;
+		$content = 'Test Content';
+		$post_date = time();
+
+		if ( 'future' === $status ) {
+			$post_date = $post_date + 600;
+		}
+
+		$post_date = date( 'Y-m-d H:i:s', $post_date );
+		$post_id = $this->factory()->post->create( [
+			'post_status' => $status,
+			'post_author' => $author,
+			'post_title' => $title,
+			'post_content' => $content,
+			'post_date' => $post_date,
+		] );
+
+		/**
+		 * Create the global ID based on the post_type and the created $id
+		 */
+		$global_id = \GraphQLRelay\Relay::toGlobalId( 'post', $post_id );
+
+		/**
+		 * Create the GraphQL query.
+		 */
+		$graphql_query = "
+		query {
+			post(id: \"{$global_id}\") {
+				id
+				title
+				status
+				author{
+					userId
+				}
+				content
+			}
+		}";
+
+		wp_set_current_user( $user );
+
+		$actual = do_graphql_request( $graphql_query );
+
+		$expected = [
+			'data' => [
+				'post' => [
+					'id' => $global_id,
+					'title' => $title,
+					'status' => $status,
+					'author' => [
+						'userId' => $author
+					],
+					'content' => apply_filters( 'the_content', $content ),
+				]
+			]
+		];
+
+		if ( true === $restricted ) {
+			$expected['data']['post']['content'] = null;
+			$expected['data']['post']['author'] = null;
+		}
+
+		if ( 0 === $author ) {
+			$expected['data']['post']['author'] = null;
+		}
+
+		/**
+		 * If the status is not "publish" and the user is a subscriber, the Post is considered
+		 * private, so trying to fetch a private post by ID will return an error
+		 */
+		if ( 'publish' !== $status && ! current_user_can( get_post_type_object( get_post( $post_id )->post_type )->cap->edit_posts ) ) {
+			$this->assertArrayHasKey( 'errors', $actual );
+		} else {
+			$this->assertEquals( $expected, $actual );
+		}
+
+
+	}
+
+	public function dataProviderRestrictedPosts() {
+
+		$test_vars = [];
+		$statuses = [ 'future', 'draft', 'pending' ];
+
+		foreach ( $statuses as $status ) {
+			$test_vars[] = [
+				'status' => $status,
+				'author' => 0,
+				'user' => 'admin',
+				'restricted' => false,
+			];
+
+			$test_vars[] = [
+				'status' => $status,
+				'author' => 0,
+				'user' => 0,
+				'restricted' => true,
+			];
+
+			$test_vars[] = [
+				'status' => $status,
+				'author' => 'contributor',
+				'user' => 'contributor',
+				'restricted' => false,
+			];
+
+		}
+
+		return $test_vars;
+
+	}
+
+	/**
+	 * Test the scenario where a post is assigned to an author
+	 * who is not a user on the site. This could happen for instance,
+	 * if the user was deleted, but their posts were never trashed
+	 * or assigned to another user.
+	 */
+	public function testQueryPostsWithOrphanedAuthorDoesntThrowErrors() {
+		global $wpdb;
+
+		$highest_user_id     = (int) $wpdb->get_var( "SELECT ID FROM {$wpdb->users} ORDER BY ID DESC limit 0,1" );
+		$nonexistent_user_id = $highest_user_id + 1;
+
+		// Create a new post assigned to a nonexistent user ID.
+		$post_id = wp_insert_post( [
+			'post_title'   => 'Post assigned to a non-existent user',
+			'post_content' => 'Post assigned to a non-existent user',
+			'post_status'  => 'publish',
+			'post_author'  => $nonexistent_user_id,
+		] );
+
+		$query = "
+		{
+			posts(first: 5) {
+				nodes {
+					postId
+					author {
+						userId
+						name
+					}
+				}
+			}
+		}
+		";
+
+		$actual = graphql( [ 'query' => $query ] );
+
+		$this->assertTrue( $post_id && ! is_wp_error( $post_id ) );
+		$this->assertArrayNotHasKey( 'errors', $actual );
+
+		// Verify that the ID of the first post matches the one we just created.
+		$this->assertEquals( $post_id, $actual['data']['posts']['nodes'][0]['postId'] );
+
+		// Verify that the 'author' field is set to null, since the user ID is invalid.
+		$this->assertEquals( null, $actual['data']['posts']['nodes'][0]['author'] );
+
+		wp_delete_post( $post_id, true );
+
+	}
+
+	/**
+	 * Tests to make sure the page set as the front page shows as the front page
+	 *
+	 * @throws Exception
+	 */
+	public function testIsFrontPage() {
+
+		/**
+		 * Make sure no page is set as the front page
+		 */
+		update_option( 'show_on_front', 'post' );
+		update_option( 'page_on_front', 0 );
+
+		$pageId = $this->factory()->post->create([
+			'post_status' => 'publish',
+			'post_type' => 'page',
+			'post_title' => 'Test Front Page'
+		]);
+
+		$other_pageId = $this->factory()->post->create([
+			'post_status' => 'publish',
+			'post_type' => 'page',
+			'post_title' => 'Test Not Front Page'
+		]);
+
+		$query = '
+		query Page( $pageId: Int ) {
+		  pageBy( pageId: $pageId ) {
+		    id
+		    title
+		    isFrontPage
+		  }
+ 		}
+		';
+
+		$actual = graphql([
+			'query' => $query,
+			'variables' => [
+				'pageId' => $pageId,
+			],
+		]);
+
+		codecept_debug( $actual );
+
+		$this->assertArrayNotHasKey( 'errors', $actual );
+		$this->assertFalse( $actual['data']['pageBy']['isFrontPage'] );
+
+		/**
+		 * Set the page as the front page
+		 */
+		update_option( 'show_on_front', 'page' );
+		update_option( 'page_on_front', $pageId );
+
+		/**
+		 * Query again
+		 */
+		$actual = graphql([
+			'query' => $query,
+			'variables' => [
+				'pageId' => $pageId,
+			],
+		]);
+
+		codecept_debug( $actual );
+
+		/**
+		 * Assert that the page is showing as the front page
+		 */
+		$this->assertArrayNotHasKey( 'errors', $actual );
+		$this->assertTrue( $actual['data']['pageBy']['isFrontPage'] );
+
+		/**
+		 * Query a page that is NOT set as the front page
+		 * so we can assert that isFrontPage is FALSE for it
+		 */
+		$actual = graphql([
+			'query' => $query,
+			'variables' => [
+				'pageId' => $other_pageId, // <-- NOTE OTHER PAGE ID
+			],
+		]);
+
+		$this->assertArrayNotHasKey( 'errors', $actual );
+		$this->assertFalse( $actual['data']['pageBy']['isFrontPage'] );
+
 
 	}
 

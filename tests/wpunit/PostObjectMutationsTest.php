@@ -389,7 +389,7 @@ class PostObjectMutationsTest extends \Codeception\TestCase\WPTestCase {
 	public function testUpdatePostWithInvalidId() {
 
 		$mutation = '
-		mutation updatePostWithInvalidId($input:updatePostInput!) {
+		mutation updatePostWithInvalidId($input:UpdatePostInput!) {
 			updatePost(input:$input) {
 				clientMutationId
 			}
@@ -404,6 +404,8 @@ class PostObjectMutationsTest extends \Codeception\TestCase\WPTestCase {
 		];
 
 		$actual = do_graphql_request( $mutation, 'updatePostWithInvalidId', $variables );
+
+		codecept_debug( $actual );
 
 		/**
 		 * We should get an error thrown if we try and update a post with an invalid id
@@ -612,7 +614,7 @@ class PostObjectMutationsTest extends \Codeception\TestCase\WPTestCase {
          * Set the expected date outcome
          */
 
-        $dateExpected = '2017-01-03 00:00:00';
+        $dateExpected = '2017-01-03T00:00:00';
         $dateGmtExpected = '2017-01-03T00:00:00';
 
         $results = $this->createPostWithDatesMutation([
@@ -649,7 +651,7 @@ class PostObjectMutationsTest extends \Codeception\TestCase\WPTestCase {
          * Set the input and expected date outcome
          */
 
-        $dateExpected = '2017-01-03 00:00:00';
+        $dateExpected = '2017-01-03T00:00:00';
         $dateGmtExpected = '2017-01-03T00:00:00';
 
         $results = $this->createPostWithDatesMutation([
@@ -686,7 +688,7 @@ class PostObjectMutationsTest extends \Codeception\TestCase\WPTestCase {
          * Set the input and expected date outcome
          */
 
-        $dateExpected = '2017-01-03 00:00:00';
+        $dateExpected = '2017-01-03T00:00:00';
         $dateGmtExpected = null;
 
         $results = $this->createPostWithDatesMutation([

@@ -21,6 +21,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 
 	public function tearDown() {
 		// your tear down methods here
+		wp_set_current_user(0);
 
 		// then
 		parent::tearDown();
@@ -107,6 +108,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		/**
 		 * Run the GraphQL query
 		 */
+		wp_set_current_user( $this->admin );
 		$actual = do_graphql_request( $query );
 
 		/**
@@ -124,8 +126,11 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 							[
 								'name' => 'post_tag'
 							],
+							[
+								'name' => 'post_format'
+							],
 						],
-						'connectedTaxonomyNames' => [ 'category', 'post_tag' ],
+						'connectedTaxonomyNames' => [ 'category', 'post_tag', 'post_format' ],
 						'deleteWithUser' => true,
 						'description' => '',
 						'excludeFromSearch' => false,
@@ -169,7 +174,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 						'publiclyQueryable' => true,
 						'restBase' => 'posts',
 						'restControllerClass' => 'WP_REST_Posts_Controller',
-						'showInAdminBar' => false,
+						'showInAdminBar' => true,
 						'showInGraphql' => true,
 						'showInMenu' => true,
 						'showInNavMenus' => true,
@@ -237,6 +242,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		/**
 		 * Run the GraphQL query
 		 */
+		wp_set_current_user( $this->admin );
 		$actual = do_graphql_request( $query );
 
 		/**
@@ -265,7 +271,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 						'publiclyQueryable' => false,
 						'restBase' => 'pages',
 						'restControllerClass' => 'WP_REST_Posts_Controller',
-						'showInAdminBar' => false,
+						'showInAdminBar' => true,
 						'showInGraphql' => true,
 						'showInMenu' => true,
 						'showInNavMenus' => true,
@@ -333,6 +339,7 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 		/**
 		 * Run the GraphQL query
 		 */
+		wp_set_current_user( $this->admin );
 		$actual = do_graphql_request( $query );
 
 		/**
@@ -361,16 +368,17 @@ class PostTypeObjectQueriesTest extends \Codeception\TestCase\WPTestCase {
 						'publiclyQueryable' => true,
 						'restBase' => 'media',
 						'restControllerClass' => 'WP_REST_Attachments_Controller',
-						'showInAdminBar' => false,
+						'showInAdminBar' => true,
 						'showInGraphql' => true,
 						'showInMenu' => true,
-						'showInNavMenus' => null,
+						'showInNavMenus' => false,
 						'showInRest' => true,
 						'showUi' => true,
 					],
 				],
 			],
 		];
+
 
 		$this->assertEquals( $expected, $actual );
 	}
